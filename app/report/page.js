@@ -4,8 +4,10 @@ import Protected from "@/components/Protected";
 import Navbar from "@/components/Navbar";
 import Sidebar from "@/components/Sidebar";
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 export default function ReportPage() {
+  const router = useRouter();
   const [tab, setTab] = useState("lost");
   const [categories, setCategories] = useState([]);
   const [locations, setLocations] = useState([]);
@@ -32,6 +34,8 @@ export default function ReportPage() {
   const [showCustomLocation, setShowCustomLocation] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
 
   // Fetch categories and locations from API
   useEffect(() => {
@@ -183,6 +187,42 @@ export default function ReportPage() {
     }
   };
 
+  const handleImageChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      // Check file size (limit to 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        setMessage('❌ Image file size must be less than 5MB');
+        return;
+      }
+
+      // Check file type
+      if (!file.type.startsWith('image/')) {
+        setMessage('❌ Please select a valid image file');
+        return;
+      }
+
+      setSelectedImage(file);
+      
+      // Create preview
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setImagePreview(e.target.result);
+      };
+      reader.readAsDataURL(file);
+      
+      console.log('✅ Image selected:', file.name, 'Size:', Math.round(file.size / 1024), 'KB');
+    }
+  };
+
+  const removeImage = () => {
+    setSelectedImage(null);
+    setImagePreview(null);
+    // Reset the file input
+    const fileInput = document.getElementById('image-upload');
+    if (fileInput) fileInput.value = '';
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -193,11 +233,36 @@ export default function ReportPage() {
       let success = false;
       let result = null;
 
-      const submitData = {
-        ...formData,
-        [tab === 'lost' ? 'date_lost' : 'date_found']: formData[tab === 'lost' ? 'date_lost' : 'date_found'],
-        [tab === 'lost' ? 'time_lost' : 'time_found']: formData[tab === 'lost' ? 'time_lost' : 'time_found']
-      };
+      // Prepare form data for submission (including image if present)
+      const submitData = new FormData();
+      
+      // Add all text fields
+      Object.keys(formData).forEach(key => {
+        if (formData[key]) {
+          submitData.append(key, formData[key]);
+        }
+      });
+
+      // Add date and time fields based on tab
+      if (formData[tab === 'lost' ? 'date_lost' : 'date_found']) {
+        submitData.append(
+          tab === 'lost' ? 'date_lost' : 'date_found', 
+          formData[tab === 'lost' ? 'date_lost' : 'date_found']
+        );
+      }
+      
+      if (formData[tab === 'lost' ? 'time_lost' : 'time_found']) {
+        submitData.append(
+          tab === 'lost' ? 'time_lost' : 'time_found', 
+          formData[tab === 'lost' ? 'time_lost' : 'time_found']
+        );
+      }
+
+      // Add image if selected
+      if (selectedImage) {
+        submitData.append('image', selectedImage);
+        console.log('📸 Image included in submission:', selectedImage.name);
+      }
 
       for (const baseURL of baseURLs) {
         try {
@@ -207,9 +272,8 @@ export default function ReportPage() {
 
           const response = await fetch(endpoint, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(submitData),
-            signal: AbortSignal.timeout(10000) // 10 second timeout
+            body: submitData, // Send FormData directly (no Content-Type header needed)
+            signal: AbortSignal.timeout(15000) // 15 second timeout for image upload
           });
 
           result = await response.json();
@@ -225,14 +289,26 @@ export default function ReportPage() {
 
       if (success) {
         setMessage(`✅ ${tab === 'lost' ? 'Lost' : 'Found'} item reported successfully!`);
-        // Reset form
-        setFormData({
-          title: '', description: '', category_id: '', location_id: '', color: '', size: '',
-          date_lost: '', date_found: '', time_lost: '', time_found: '', user_name: '', user_email: '', 
-          user_phone: '', additional_details: '', custom_category: '', custom_location: ''
-        });
-        setShowCustomCategory(false);
-        setShowCustomLocation(false);
+        
+        // If this is a found item, redirect to security questions page
+        if (tab === 'found' && result?.item_id) {
+          setTimeout(() => {
+            router.push(`/found-item-questions/${result.item_id}`);
+          }, 1500);
+        } else {
+          // For lost items, just reset the form
+          setTimeout(() => {
+            // Reset form
+            setFormData({
+              title: '', description: '', category_id: '', location_id: '', color: '', size: '',
+              date_lost: '', date_found: '', time_lost: '', time_found: '', user_name: '', user_email: '', 
+              user_phone: '', additional_details: '', custom_category: '', custom_location: ''
+            });
+            setShowCustomCategory(false);
+            setShowCustomLocation(false);
+            removeImage(); // Clear image
+          }, 2000);
+        }
       } else {
         setMessage(`❌ Error: ${result?.error || 'Failed to submit to server'}`);
       }
@@ -377,10 +453,66 @@ export default function ReportPage() {
             </div>
 
             <div>
-              <div className="mb-1 text-sm">Upload Image</div>
-              <div className="grid place-items-center rounded-md border-2 border-dashed border-border bg-panel p-10 text-neutral-600">
-                Upload your image here or browse
-              </div>
+              <div className="mb-1 text-sm">Upload Image (Optional)</div>
+              {!imagePreview ? (
+                <label 
+                  htmlFor="image-upload" 
+                  className="grid place-items-center rounded-md border-2 border-dashed border-border bg-panel p-10 text-neutral-600 cursor-pointer hover:bg-gray-50 transition-colors"
+                >
+                  <div className="text-center">
+                    <div className="text-4xl mb-2">📷</div>
+                    <div className="font-medium">Click to upload image</div>
+                    <div className="text-sm text-gray-500 mt-1">
+                      JPG, PNG, GIF up to 5MB
+                    </div>
+                  </div>
+                  <input
+                    id="image-upload"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageChange}
+                    className="hidden"
+                  />
+                </label>
+              ) : (
+                <div className="relative rounded-md border border-border bg-panel p-4">
+                  <div className="flex items-start gap-4">
+                    <img 
+                      src={imagePreview} 
+                      alt="Preview" 
+                      className="w-24 h-24 object-cover rounded-md border"
+                    />
+                    <div className="flex-1">
+                      <div className="font-medium text-sm">{selectedImage?.name}</div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        Size: {Math.round(selectedImage?.size / 1024)} KB
+                      </div>
+                      <div className="flex gap-2 mt-2">
+                        <label 
+                          htmlFor="image-upload"
+                          className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded cursor-pointer hover:bg-blue-200"
+                        >
+                          Change Image
+                        </label>
+                        <button
+                          type="button"
+                          onClick={removeImage}
+                          className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded hover:bg-red-200"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <input
+                    id="image-upload"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageChange}
+                    className="hidden"
+                  />
+                </div>
+              )}
             </div>
 
             <label className="block text-sm">

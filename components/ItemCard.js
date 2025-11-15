@@ -17,16 +17,25 @@ export default function ItemCard({ item, type, id, title, location, date, ago, c
   // Use the type from the item data (which should now be correctly set in Dashboard)
   const finalType = itemData.type || type || 'LOST';
   
-  console.log(`🔍 ItemCard: ${itemData.title} -> Final type: ${finalType}`);
+  // Check if this is a private item (from API flag)
+  const isPrivate = itemData.is_currently_private === true;
+  
+  console.log(`🔍 ItemCard Debug:`, {
+    title: itemData.title,
+    type: finalType,
+    isPrivate: isPrivate,
+    is_currently_private: itemData.is_currently_private,
+    created_at: itemData.created_at,
+    has_location_name: !!itemData.location_name
+  });
   
   // Create corrected item data with proper type
   const correctedItemData = { ...itemData, type: finalType };
   
-  // Apply privacy filtering
-  const displayItem = getPrivateItemData(correctedItemData);
-  const privacyStatus = getPrivacyStatusMessage(correctedItemData);
-  const isClaimable = canClaimItem(correctedItemData);
-  const isPrivate = finalType === 'FOUND' && !isItemPublic(correctedItemData);
+  // For display purposes, use the item data as-is since API already filtered it
+  const displayItem = correctedItemData;
+  const privacyStatus = isPrivate ? 'Private (less than 30 days)' : 'Public (30+ days)';
+  const isClaimable = !isPrivate && finalType === 'FOUND';
 
   const handleVerificationSuccess = (details) => {
     setShowVerification(false);
@@ -108,27 +117,29 @@ export default function ItemCard({ item, type, id, title, location, date, ago, c
       <div className="font-semibold text-gray-900 mb-2">{displayItem.title}</div>
       {isPrivate ? (
         <div className="text-sm text-amber-700 mb-4 bg-amber-50 p-2 rounded">
-          📍 Location: Hidden • 📅 Date: Hidden
+          📍 {displayItem.location_name || displayItem.location} • � Other details hidden for privacy
         </div>
       ) : (
         <div className="text-sm text-gray-600 mb-4">
-          {displayItem.location} • {displayItem.date}
+          {displayItem.location_name || displayItem.location} • {displayItem.date_found || displayItem.date}
         </div>
       )}
       
-      {/* Description */}
-      <div className={`text-sm mb-4 ${isPrivate ? 'text-amber-700 bg-amber-50 p-2 rounded-lg' : 'text-gray-600'}`}>
-        {displayItem.description}
-      </div>
+      {/* Description - hide completely for private items */}
+      {!isPrivate && displayItem.description && (
+        <div className="text-sm text-gray-600 mb-4">
+          {displayItem.description}
+        </div>
+      )}
       
       <div className="flex items-center justify-between gap-3">
         {isPrivate ? (
-          <button
-            onClick={handleVerifyOwnership}
+          <Link
+            href={`/verify/${displayItem.id}`}
             className="inline-flex px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 bg-amber-600 hover:bg-amber-700 text-white"
           >
-            🔐 VERIFY OWNERSHIP
-          </button>
+            🔐 VERIFY TO CLAIM
+          </Link>
         ) : (
           <Link
             href={`/items/${displayItem.id}`}
@@ -139,9 +150,12 @@ export default function ItemCard({ item, type, id, title, location, date, ago, c
         )}
         
         {isClaimable && (
-          <button className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200">
+          <Link
+            href={`/verify/${displayItem.id}`}
+            className="inline-flex items-center justify-center bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 shadow-lg hover:shadow-xl"
+          >
             CLAIM ITEM
-          </button>
+          </Link>
         )}
         
         <ReportButton type="item" targetId={displayItem.id} size="small" style="text" />

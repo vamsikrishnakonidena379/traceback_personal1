@@ -10,6 +10,8 @@ class ApiService {
     this.baseURL = API_BASE_URL;
     this.token = null;
     
+    console.log('🔧 ApiService initialized with baseURL:', this.baseURL);
+    
     // Load token from localStorage if available
     if (typeof window !== 'undefined') {
       this.token = localStorage.getItem('trackeback_token');
@@ -101,9 +103,19 @@ class ApiService {
 
   // Lost items
   async getLostItems(params = {}) {
+    console.log('🔴 getLostItems: Making API call with params:', params);
     const queryString = new URLSearchParams(params).toString();
     const endpoint = `/api/lost-items${queryString ? `?${queryString}` : ''}`;
-    return await this.makeRequest(endpoint);
+    console.log('🔴 getLostItems: Endpoint:', `${this.baseURL}${endpoint}`);
+    
+    try {
+      const result = await this.makeRequest(endpoint);
+      console.log('🔴 getLostItems: Success, got', result.items?.length, 'items');
+      return result;
+    } catch (error) {
+      console.error('🔴 getLostItems: Error:', error);
+      throw error;
+    }
   }
 
   // Found items
@@ -165,6 +177,11 @@ class ApiService {
     // Debug logging
     console.log(`🔍 formatItemForDisplay: ${item.title} -> type: ${type} (explicit: ${itemType})`);
     console.log(`   finder_name: ${item.finder_name}, user_name: ${item.user_name}`);
+    console.log(`   image_url from backend: ${item.image_url}`);
+    
+    // Use image_url directly from backend (already formatted with full path)
+    const imageUrl = item.image_url || null;
+    console.log(`   final image_url: ${imageUrl}`);
     
     return {
       id: item.id,
@@ -184,6 +201,9 @@ class ApiService {
       canClaim: !item.is_claimed,
       currentLocation: item.current_location,
       finderNotes: item.finder_notes,
+      // Image handling - use image_url directly from backend
+      image_url: imageUrl,
+      image_alt_text: item.title ? `Photo of ${item.title}` : 'Item photo',
       // Privacy-related fields
       privacy_expires_at: item.privacy_expires_at,
       privacy_expires: item.privacy_expires,
@@ -196,14 +216,29 @@ class ApiService {
   // Convert database items to frontend format
   async getFormattedLostItems(params = {}) {
     try {
+      console.log('🔴 getFormattedLostItems: Starting request with params:', params);
       const response = await this.getLostItems(params);
+      console.log('🔴 getFormattedLostItems: Raw API response:', response);
       console.log('🔴 getFormattedLostItems: Processing', response.items?.length, 'items as LOST');
+      
+      if (!response.items || response.items.length === 0) {
+        console.log('🔴 No items to format');
+        return { items: [], total: 0 };
+      }
+      
+      const formattedItems = response.items.map(item => {
+        console.log('🔴 About to format item:', item.title, 'with image_filename:', item.image_filename);
+        return this.formatItemForDisplay(item, 'LOST');
+      });
+      
+      console.log('🔴 Formatted items completed:', formattedItems.slice(0,1)); // Show first item
+      
       return {
-        items: response.items.map(item => this.formatItemForDisplay(item, 'LOST')),
-        ...response
+        ...response,
+        items: formattedItems  // Put this AFTER spread to override raw items
       };
     } catch (error) {
-      console.error('Failed to get lost items:', error);
+      console.error('🔴 Failed to get lost items:', error);
       return { items: [], total: 0 };
     }
   }
@@ -213,8 +248,8 @@ class ApiService {
       const response = await this.getFoundItems(params);
       console.log('🟢 getFormattedFoundItems: Processing', response.items?.length, 'items as FOUND');
       return {
-        items: response.items.map(item => this.formatItemForDisplay(item, 'FOUND')),
-        ...response
+        ...response,
+        items: response.items.map(item => this.formatItemForDisplay(item, 'FOUND'))
       };
     } catch (error) {
       console.error('Failed to get found items:', error);

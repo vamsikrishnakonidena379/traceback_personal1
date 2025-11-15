@@ -43,8 +43,18 @@ export default function Login() {
         localStorage.setItem("sessionToken", data.session_token);
         localStorage.setItem("user", JSON.stringify(data.user));
         
-        const redirectTo = searchParams.get("redirect") || "/dashboard";
-        nav.push(redirectTo);
+        // Check if profile is complete
+        const profileComplete = data.user.profile_completed === true || 
+                               data.user.profile_completed === 1;
+        
+        if (!profileComplete) {
+          // Redirect to profile creation if not complete
+          nav.push("/profile/create");
+        } else {
+          // Redirect to dashboard or requested page
+          const redirectTo = searchParams.get("redirect") || "/dashboard";
+          nav.push(redirectTo);
+        }
       } else {
         setError(data.error || "Login failed");
       }

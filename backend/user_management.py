@@ -92,7 +92,7 @@ def get_user_by_email(email):
         
         cursor.execute('''
             SELECT id, email, password_hash, first_name, last_name, full_name, 
-                   is_verified, created_at, last_login, is_active
+                   is_verified, created_at, last_login, is_active, profile_completed
             FROM users WHERE email = ?
         ''', (email,))
         

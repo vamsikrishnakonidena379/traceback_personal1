@@ -52,15 +52,21 @@ export const isItemPublic = (item) => {
  * @returns {Object} - Item with privacy filters applied
  */
 export const getPrivateItemData = (item) => {
+  console.log(`🔒 getPrivateItemData called for: ${item.title} (type: ${item.type})`);
+  
   if (item.type !== 'FOUND' || isItemPublic(item)) {
+    console.log(`   -> Returning full data (type: ${item.type}, isPublic: ${item.type === 'FOUND' ? isItemPublic(item) : 'N/A'})`);
     return item; // Return full data for public items
   }
   
+  console.log(`   -> Applying privacy filtering for private FOUND item`);
   // Return data with only name and category visible for private items
   return {
     ...item,
     title: item.title, // Keep original title/name
     category: item.category, // Keep original category
+    image_url: item.image_url, // Keep image for visual identification
+    image_alt_text: item.image_alt_text, // Keep image alt text
     description: "Details hidden for privacy protection",
     reportedBy: "Anonymous",
     location: "Hidden", 

@@ -14,6 +14,7 @@ export default function ReportAbuse() {
   const targetId = searchParams.get('id');
   
   const [targetItem, setTargetItem] = useState(null);
+  const [claimInfo, setClaimInfo] = useState(null);
   const [formData, setFormData] = useState({
     category: "",
     reason: "",
@@ -24,7 +25,25 @@ export default function ReportAbuse() {
   const [submitted, setSubmitted] = useState(false);
 
   useEffect(() => {
-    if (targetType && targetId) {
+    // Check if reporting a false claim
+    const storedClaimInfo = localStorage.getItem('reportClaimInfo');
+    if (storedClaimInfo) {
+      const claim = JSON.parse(storedClaimInfo);
+      setClaimInfo(claim);
+      setTargetItem({
+        title: claim.itemTitle,
+        name: claim.claimerName,
+        email: claim.claimerEmail
+      });
+      setFormData(prev => ({
+        ...prev,
+        category: 'False Claim',
+        reason: 'False ownership verification',
+        description: `Reporting false claim for item: ${claim.itemTitle}\nClaimed by: ${claim.claimerName} (${claim.claimerEmail})`
+      }));
+      // Clear from localStorage after loading
+      localStorage.removeItem('reportClaimInfo');
+    } else if (targetType && targetId) {
       if (targetType === 'item') {
         const allItems = [...lostItems, ...foundItems];
         const item = allItems.find(i => i.id === targetId);
@@ -48,29 +67,56 @@ export default function ReportAbuse() {
     e.preventDefault();
     setLoading(true);
     
-    // Simulate report submission
-    setTimeout(() => {
-      // In a real app, this would send to an API
-      const reportData = {
-        id: `r${Date.now()}`,
-        type: targetType.toUpperCase(),
-        targetId: targetId,
-        targetTitle: targetItem?.title || targetItem?.name || "Unknown",
-        reportedBy: formData.anonymous ? "Anonymous" : "Current User",
-        reportedById: formData.anonymous ? null : "current_user_id",
-        category: formData.category,
-        reason: formData.reason,
-        description: formData.description,
-        status: "PENDING",
-        priority: "MEDIUM",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-      
-      console.log("Report submitted:", reportData);
-      setSubmitted(true);
+    // Get current user from localStorage
+    const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+    
+    const reportData = claimInfo ? {
+      // Reporting a false claim
+      type: 'CLAIM',
+      target_id: claimInfo.claimId,
+      target_title: `False Claim: ${claimInfo.itemTitle}`,
+      reported_by_id: currentUser.id || null,
+      reported_by_name: formData.anonymous ? 'Anonymous' : (currentUser.name || 'Anonymous'),
+      reported_by_email: formData.anonymous ? null : currentUser.email,
+      category: formData.category,
+      reason: formData.reason,
+      description: formData.description
+    } : {
+      // Regular item/user report
+      type: targetType.toUpperCase(),
+      target_id: parseInt(targetId),
+      target_title: targetItem?.title || targetItem?.name || "Unknown",
+      reported_by_id: currentUser.id || null,
+      reported_by_name: formData.anonymous ? 'Anonymous' : (currentUser.name || 'Anonymous'),
+      reported_by_email: formData.anonymous ? null : currentUser.email,
+      category: formData.category,
+      reason: formData.reason,
+      description: formData.description
+    };
+    
+    // Submit to API
+    fetch('http://localhost:5000/api/reports', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(reportData)
+    })
+    .then(response => response.json())
+    .then(data => {
+      if (data.success) {
+        console.log("Report submitted:", data);
+        setSubmitted(true);
+      } else {
+        alert('Failed to submit report: ' + (data.error || 'Unknown error'));
+      }
       setLoading(false);
-    }, 1000);
+    })
+    .catch(error => {
+      console.error("Error submitting report:", error);
+      alert('Failed to submit report. Please try again.');
+      setLoading(false);
+    });
   };
 
   if (submitted) {
@@ -134,9 +180,17 @@ export default function ReportAbuse() {
             {/* Target Info */}
             {targetItem && (
               <div className="mb-8 p-4 bg-gray-50 rounded-xl">
-                <h2 className="font-semibold text-gray-800 mb-2">Reporting {targetType}:</h2>
+                <h2 className="font-semibold text-gray-800 mb-2">
+                  {claimInfo ? 'Reporting False Claim:' : `Reporting ${targetType}:`}
+                </h2>
                 <div className="flex items-center gap-3">
-                  {targetType === 'item' && (
+                  {claimInfo ? (
+                    <>
+                      <span className="bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-medium">FALSE CLAIM</span>
+                      <span className="font-medium">{claimInfo.itemTitle}</span>
+                      <span className="text-sm text-gray-600">• Claimed by {claimInfo.claimerName}</span>
+                    </>
+                  ) : targetType === 'item' ? (
                     <>
                       <span className={`px-2 py-1 rounded text-xs font-medium ${
                         targetItem.type === 'LOST' 
@@ -149,14 +203,13 @@ export default function ReportAbuse() {
                       <span className="text-sm text-gray-600">• {targetItem.location}</span>
                       <span className="text-sm text-gray-600">• by {targetItem.reportedBy}</span>
                     </>
-                  )}
-                  {targetType === 'user' && (
+                  ) : targetType === 'user' ? (
                     <>
                       <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-medium">USER</span>
                       <span className="font-medium">{targetItem.name}</span>
                       <span className="text-sm text-gray-600">• {targetItem.email}</span>
                     </>
-                  )}
+                  ) : null}
                 </div>
               </div>
             )}

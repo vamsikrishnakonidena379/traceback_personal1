@@ -176,16 +176,14 @@ export default function LostPage() {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
             {lostItems.map((item) => (
               <ItemCard 
-                key={item.id} 
-                id={item.id}
-                type="LOST"
-                title={item.title}
-                description={item.description}
-                location={item.location_name || item.location}
-                date={item.created_at}
-                category={item.category_name || item.category}
-                reportedBy={item.email}
-                {...item}
+                key={item.id}
+                item={{
+                  ...item,
+                  type: 'LOST',
+                  location: item.location_name || item.location,
+                  date: item.date_lost || item.created_at,
+                  category: item.category_name || item.category
+                }}
               />
             ))}
           </div>

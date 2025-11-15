@@ -23,7 +23,8 @@ export default function FoundPage() {
   const fetchFoundItems = async (page = 1) => {
     try {
       setLoading(true);
-      const response = await fetch(`http://localhost:5000/api/found-items?limit=25&page=${page}`);
+      // Add show_all=true to get both private and public items
+      const response = await fetch(`http://localhost:5000/api/found-items?limit=25&page=${page}&show_all=true`);
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -79,7 +80,7 @@ export default function FoundPage() {
         <button
           onClick={() => handlePageChange(current - 1)}
           disabled={!pagination.has_prev}
-          className="px-3 py-2 rounded-md bg-gray-200 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-4 py-2 rounded-lg bg-white/90 hover:bg-white text-gray-900 font-medium transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Previous
         </button>
@@ -89,12 +90,12 @@ export default function FoundPage() {
             key={index}
             onClick={() => typeof page === 'number' && handlePageChange(page)}
             disabled={page === '...' || page === current}
-            className={`px-3 py-2 rounded-md ${
+            className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
               page === current
-                ? 'bg-blue-600 text-white'
+                ? 'bg-gray-900 text-white shadow-lg'
                 : page === '...'
-                ? 'cursor-default'
-                : 'bg-gray-200 hover:bg-gray-300'
+                ? 'cursor-default text-gray-500'
+                : 'bg-white/90 hover:bg-white text-gray-900 shadow-lg hover:shadow-xl'
             }`}
           >
             {page}
@@ -104,7 +105,7 @@ export default function FoundPage() {
         <button
           onClick={() => handlePageChange(current + 1)}
           disabled={!pagination.has_next}
-          className="px-3 py-2 rounded-md bg-gray-200 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-4 py-2 rounded-lg bg-white/90 hover:bg-white text-gray-900 font-medium transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Next
         </button>
@@ -116,15 +117,23 @@ export default function FoundPage() {
     return (
       <Protected>
         <Navbar />
-        <div className="flex">
+        <div className="flex min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100">
           <Sidebar />
           <main className="mx-auto w-full max-w-7xl flex-1 p-6">
             <div className="mb-4 flex items-center justify-between">
-              <h1 className="text-xl font-semibold">Found Items</h1>
-              <Link href="/report" className="btn">Report Found Item</Link>
+              <h1 className="text-2xl font-bold text-gray-900">Found Items</h1>
+              <Link 
+                href="/report" 
+                className="bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-lg font-medium transition-all duration-200 shadow-lg hover:shadow-xl"
+              >
+                Report Found Item
+              </Link>
             </div>
             <div className="flex justify-center items-center h-64">
-              <div className="text-lg">Loading found items...</div>
+              <div className="text-center">
+                <div className="w-12 h-12 border-4 border-gray-300 border-t-gray-600 rounded-full animate-spin mx-auto mb-4"></div>
+                <p className="text-gray-600">Loading found items...</p>
+              </div>
             </div>
           </main>
         </div>
@@ -136,12 +145,17 @@ export default function FoundPage() {
     return (
       <Protected>
         <Navbar />
-        <div className="flex">
+        <div className="flex min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100">
           <Sidebar />
           <main className="mx-auto w-full max-w-7xl flex-1 p-6">
             <div className="mb-4 flex items-center justify-between">
-              <h1 className="text-xl font-semibold">Found Items</h1>
-              <Link href="/report" className="btn">Report Found Item</Link>
+              <h1 className="text-2xl font-bold text-gray-900">Found Items</h1>
+              <Link 
+                href="/report" 
+                className="bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-lg font-medium transition-all duration-200 shadow-lg hover:shadow-xl"
+              >
+                Report Found Item
+              </Link>
             </div>
             <div className="flex justify-center items-center h-64">
               <div className="text-lg text-red-600">{error}</div>
@@ -155,12 +169,34 @@ export default function FoundPage() {
   return (
     <Protected>
       <Navbar />
-      <div className="flex">
+      <div className="flex min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100">
         <Sidebar />
         <main className="mx-auto w-full max-w-7xl flex-1 p-6">
-          <div className="mb-4 flex items-center justify-between">
-            <h1 className="text-xl font-semibold">Found Items</h1>
-            <Link href="/report" className="btn">Report Found Item</Link>
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h1 className="text-2xl font-bold text-gray-900">Found Items</h1>
+              <Link 
+                href="/report" 
+                className="bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-lg font-medium transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+              >
+                Report Found Item
+              </Link>
+            </div>
+            
+            {/* Privacy Policy Notice */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+              <div className="flex items-start gap-3">
+                <div className="text-blue-600 text-xl">🔒</div>
+                <div className="flex-1">
+                  <h3 className="font-semibold text-blue-900 mb-1">30-Day Privacy Policy</h3>
+                  <p className="text-sm text-blue-800">
+                    To protect finder privacy and prevent false claims, found items are kept private for the first 30 days. 
+                    Private items show only the item name and location - all other details are hidden until the 30-day period ends 
+                    or you verify ownership. If you lost something recently, report it as a lost item and our matching system will notify you of potential matches.
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
           
           <div className="mb-4 flex justify-between items-center text-sm text-gray-600">
@@ -169,30 +205,39 @@ export default function FoundPage() {
               (Page {pagination.page} of {pagination.pages})
             </div>
             <div>
-              25 items per page
+              🔒 Private items show name & location only • 25 per page
             </div>
           </div>
           
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
             {foundItems.map((item) => (
               <ItemCard 
-                key={item.id} 
-                id={item.id}
-                type="FOUND"
-                title={item.title}
-                description={item.description}
-                location={item.location_name || item.location}
-                date={item.created_at}
-                category={item.category_name || item.category}
-                reportedBy={item.email}
-                {...item}
+                key={item.id}
+                item={{
+                  ...item,
+                  type: 'FOUND',
+                  location: item.location_name || item.location,
+                  date: item.date_found || item.created_at,
+                  category: item.category_name || item.category
+                }}
               />
             ))}
           </div>
           
           {foundItems.length === 0 && !loading && (
-            <div className="flex justify-center items-center h-64">
-              <div className="text-lg text-gray-500">No found items found</div>
+            <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl border border-white/20 p-12 text-center">
+              <div className="text-6xl mb-4">📦</div>
+              <div className="text-xl font-semibold text-gray-900 mb-2">No Public Found Items Yet</div>
+              <p className="text-gray-600 mb-4">
+                Found items become public after 30 days. Check back later or report your lost item 
+                to get matched with recent finds.
+              </p>
+              <Link 
+                href="/lost" 
+                className="inline-block bg-gray-900 hover:bg-black text-white px-6 py-3 rounded-lg font-medium transition-all duration-200 shadow-lg hover:shadow-xl"
+              >
+                Report Lost Item
+              </Link>
             </div>
           )}
 

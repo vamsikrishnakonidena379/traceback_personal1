@@ -4,13 +4,54 @@ import Link from "next/link";
 import Protected from "@/components/Protected";
 import Navbar from "@/components/Navbar";
 import Sidebar from "@/components/Sidebar";
-import { reports, lostItems, foundItems, users, reportCategories } from "@/data/mock";
+import { reportCategories } from "@/data/mock";
 
 export default function Moderation() {
   const [activeTab, setActiveTab] = useState("pending");
   const [selectedReport, setSelectedReport] = useState(null);
   const [moderatorNotes, setModeratorNotes] = useState("");
   const [reportAction, setReportAction] = useState("");
+  const [reports, setReports] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+
+  useEffect(() => {
+    // Check if user is admin
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    setCurrentUser(user);
+    const adminEmails = ['aksh@kent.edu', 'achapala@kent.edu'];
+    const adminStatus = user.email && adminEmails.includes(user.email.toLowerCase());
+    setIsAdmin(adminStatus);
+    
+    if (adminStatus) {
+      loadReports();
+    } else {
+      setLoading(false);
+    }
+  }, []);
+
+  const loadReports = async () => {
+    try {
+      setLoading(true);
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      
+      const response = await fetch(`http://localhost:5000/api/reports?admin_email=${encodeURIComponent(user.email)}`);
+      const data = await response.json();
+      
+      if (response.ok) {
+        setReports(data.reports || []);
+      } else {
+        console.error('Failed to load reports:', data.error);
+        alert('Failed to load reports: ' + data.error);
+      }
+    } catch (error) {
+      console.error('Error loading reports:', error);
+      alert('Error loading reports. Make sure the backend is running.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filteredReports = reports.filter(report => {
     if (activeTab === "pending") return report.status === "PENDING";
@@ -38,31 +79,125 @@ export default function Moderation() {
     }
   };
 
-  const handleReportAction = (action) => {
-    if (!selectedReport) return;
+  const handleReportAction = async (action) => {
+    if (!selectedReport || !isAdmin) return;
     
-    // Simulate updating report status
-    console.log(`Report ${selectedReport.id} ${action}:`, {
-      action,
-      moderatorNotes,
-      timestamp: new Date().toISOString()
-    });
-    
-    // Reset form
-    setSelectedReport(null);
-    setModeratorNotes("");
-    setReportAction("");
+    try {
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      
+      // If action is to remove content, call delete endpoint
+      if (action === 'remove_content') {
+        const response = await fetch(`http://localhost:5000/api/reports/${selectedReport.report_id}/delete-content`, {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            admin_email: user.email,
+            moderator_notes: moderatorNotes || 'Content removed by admin'
+          })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+          alert(`✅ ${data.message}`);
+          setSelectedReport(null);
+          setModeratorNotes("");
+          setReportAction("");
+          loadReports(); // Reload reports
+        } else {
+          alert('❌ Failed to delete content: ' + data.error);
+        }
+      } else {
+        // Update report status for other actions
+        const response = await fetch(`http://localhost:5000/api/reports/${selectedReport.report_id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            admin_email: user.email,
+            status: action === 'dismiss' ? 'DISMISSED' : 'REVIEWED',
+            moderator_action: action,
+            moderator_notes: moderatorNotes
+          })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+          alert('✅ Report updated successfully');
+          setSelectedReport(null);
+          setModeratorNotes("");
+          setReportAction("");
+          loadReports(); // Reload reports
+        } else {
+          alert('❌ Failed to update report: ' + data.error);
+        }
+      }
+    } catch (error) {
+      console.error('Error handling report action:', error);
+      alert('Error processing action. Please try again.');
+    }
   };
 
-  const getTargetDetails = (report) => {
-    if (report.type === "ITEM") {
-      const allItems = [...lostItems, ...foundItems];
-      return allItems.find(item => item.id === report.targetId);
-    } else if (report.type === "USER") {
-      return users.find(user => user.id === report.targetId);
-    }
-    return null;
+  const getTargetDetails = async (report) => {
+    // For now, we'll just show basic info from the report
+    // In the future, we could fetch full details from the API
+    return {
+      id: report.target_id,
+      title: report.target_title,
+      type: report.type
+    };
   };
+
+  // Show unauthorized message if not admin
+  if (!loading && !isAdmin) {
+    return (
+      <Protected>
+        <Navbar />
+        <div className="flex min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100">
+          <Sidebar />
+          <main className="mx-auto w-full max-w-7xl flex-1 p-6">
+            <div className="text-center py-12">
+              <div className="text-6xl mb-4">🚫</div>
+              <h1 className="text-2xl font-bold text-gray-900 mb-4">Unauthorized Access</h1>
+              <p className="text-gray-600 mb-6">
+                This page is only accessible to administrators.
+              </p>
+              <p className="text-sm text-gray-500 mb-8">
+                Current user: {currentUser?.email || 'Not logged in'}
+              </p>
+              <Link
+                href="/dashboard"
+                className="bg-gray-900 hover:bg-black text-white px-6 py-3 rounded-lg font-medium transition-all duration-200 inline-block"
+              >
+                Back to Dashboard
+              </Link>
+            </div>
+          </main>
+        </div>
+      </Protected>
+    );
+  }
+
+  if (loading) {
+    return (
+      <Protected>
+        <Navbar />
+        <div className="flex min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100">
+          <Sidebar />
+          <main className="mx-auto w-full max-w-7xl flex-1 p-6">
+            <div className="text-center py-12">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
+              <p className="mt-4 text-gray-600">Loading reports...</p>
+            </div>
+          </main>
+        </div>
+      </Protected>
+    );
+  }
 
   return (
     <Protected>
@@ -75,6 +210,7 @@ export default function Moderation() {
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Moderation Dashboard</h1>
               <p className="text-gray-600">Review and manage reported content and users</p>
+              <p className="text-sm text-green-600 mt-1">✅ Logged in as admin: {currentUser?.email}</p>
             </div>
             <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-2">
               <span className="text-red-800 font-medium">⚠️ Admin Access Only</span>
@@ -135,9 +271,8 @@ export default function Moderation() {
                 </div>
               ) : (
                 filteredReports.map((report) => {
-                  const targetDetails = getTargetDetails(report);
                   return (
-                    <div key={report.id} className="p-6 hover:bg-gray-50 transition-colors">
+                    <div key={report.report_id} className="p-6 hover:bg-gray-50 transition-colors">
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <div className="flex items-center gap-3 mb-2">
@@ -153,34 +288,34 @@ export default function Moderation() {
                               {report.status}
                             </span>
                             <span className="text-xs text-gray-500">
-                              Reported {new Date(report.createdAt).toLocaleDateString()}
+                              Reported {new Date(report.created_at).toLocaleDateString()}
                             </span>
                           </div>
                           
                           <h3 className="font-semibold text-gray-900 mb-1">
-                            {reportCategories[report.category]?.label} - {report.reason}
+                            {reportCategories[report.category]?.label || report.category} - {report.reason}
                           </h3>
                           
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
                             <div>
                               <p className="text-sm text-gray-600 mb-1">
-                                <strong>Reported {report.type.toLowerCase()}:</strong> {report.targetTitle}
+                                <strong>Reported {report.type.toLowerCase()}:</strong> {report.target_title}
                               </p>
-                              {targetDetails && (
-                                <p className="text-xs text-gray-500">
-                                  {report.type === "ITEM" 
-                                    ? `${targetDetails.location} • ${targetDetails.category}`
-                                    : targetDetails.email
-                                  }
-                                </p>
-                              )}
+                              <p className="text-xs text-gray-500">
+                                Target ID: {report.target_id}
+                              </p>
                             </div>
                             <div>
                               <p className="text-sm text-gray-600">
-                                <strong>Reported by:</strong> {report.reportedBy}
+                                <strong>Reported by:</strong> {report.reported_by_name || 'Anonymous'}
                               </p>
+                              {report.reported_by_email && (
+                                <p className="text-xs text-gray-500">
+                                  {report.reported_by_email}
+                                </p>
+                              )}
                               <p className="text-xs text-gray-500">
-                                Report ID: {report.id}
+                                Report ID: {report.report_id}
                               </p>
                             </div>
                           </div>
@@ -193,11 +328,16 @@ export default function Moderation() {
                             </div>
                           )}
                           
-                          {report.moderatorNotes && (
+                          {report.moderator_notes && (
                             <div className="bg-blue-50 rounded-lg p-3 mb-3">
                               <p className="text-sm text-blue-800">
-                                <strong>Moderator Notes:</strong> {report.moderatorNotes}
+                                <strong>Moderator Notes:</strong> {report.moderator_notes}
                               </p>
+                              {report.moderator_action && (
+                                <p className="text-xs text-blue-600 mt-1">
+                                  Action taken: {report.moderator_action}
+                                </p>
+                              )}
                             </div>
                           )}
                         </div>
@@ -209,12 +349,12 @@ export default function Moderation() {
                           >
                             Review
                           </button>
-                          {targetDetails && (
+                          {report.type === 'ITEM' && (
                             <Link
-                              href={report.type === "ITEM" ? `/items/${report.targetId}` : `/profile/${report.targetId}`}
+                              href={`/items/${report.target_id}`}
                               className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 text-center"
                             >
-                              View {report.type === "ITEM" ? "Item" : "Profile"}
+                              View Item
                             </Link>
                           )}
                         </div>
@@ -231,13 +371,46 @@ export default function Moderation() {
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
               <div className="bg-white rounded-2xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-bold text-gray-900">Review Report</h2>
+                  <h2 className="text-xl font-bold text-gray-900">Review Report #{selectedReport.report_id}</h2>
                   <button
-                    onClick={() => setSelectedReport(null)}
+                    onClick={() => {
+                      setSelectedReport(null);
+                      setModeratorNotes("");
+                      setReportAction("");
+                    }}
                     className="text-gray-400 hover:text-gray-600"
                   >
                     ✕
                   </button>
+                </div>
+
+                {/* Report Summary */}
+                <div className="bg-gray-50 rounded-lg p-4 mb-6">
+                  <h3 className="font-semibold text-gray-900 mb-2">Report Details</h3>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <span className="text-gray-600">Type:</span>
+                      <span className="font-medium ml-2">{selectedReport.type}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Target:</span>
+                      <span className="font-medium ml-2">{selectedReport.target_title}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Category:</span>
+                      <span className="font-medium ml-2">{selectedReport.category}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Reason:</span>
+                      <span className="font-medium ml-2">{selectedReport.reason}</span>
+                    </div>
+                  </div>
+                  {selectedReport.description && (
+                    <div className="mt-3">
+                      <span className="text-gray-600 text-sm">Description:</span>
+                      <p className="text-sm text-gray-900 mt-1">{selectedReport.description}</p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-4 mb-6">
@@ -253,11 +426,19 @@ export default function Moderation() {
                       <option value="">Select action</option>
                       <option value="dismiss">Dismiss Report</option>
                       <option value="warn_user">Warn User</option>
-                      <option value="remove_content">Remove Content</option>
+                      <option value="remove_content">🗑️ Delete Content (Permanent)</option>
                       <option value="suspend_user">Suspend User</option>
                       <option value="ban_user">Ban User</option>
                       <option value="escalate">Escalate to Admin</option>
                     </select>
+                    {reportAction === 'remove_content' && (
+                      <div className="mt-2 bg-red-50 border border-red-200 rounded-lg p-3">
+                        <p className="text-sm text-red-800">
+                          ⚠️ <strong>Warning:</strong> This will permanently delete the reported {selectedReport.type.toLowerCase()} 
+                          (ID: {selectedReport.target_id}) from the database. This action cannot be undone.
+                        </p>
+                      </div>
+                    )}
                   </div>
 
                   <div>
@@ -278,12 +459,20 @@ export default function Moderation() {
                   <button
                     onClick={() => handleReportAction(reportAction)}
                     disabled={!reportAction}
-                    className="flex-1 bg-gray-900 hover:bg-black disabled:bg-gray-400 text-white px-4 py-2 rounded-lg font-medium transition-all duration-200"
+                    className={`flex-1 ${
+                      reportAction === 'remove_content' 
+                        ? 'bg-red-600 hover:bg-red-700' 
+                        : 'bg-gray-900 hover:bg-black'
+                    } disabled:bg-gray-400 text-white px-4 py-2 rounded-lg font-medium transition-all duration-200`}
                   >
-                    Submit Decision
+                    {reportAction === 'remove_content' ? '🗑️ Delete Content' : 'Submit Decision'}
                   </button>
                   <button
-                    onClick={() => setSelectedReport(null)}
+                    onClick={() => {
+                      setSelectedReport(null);
+                      setModeratorNotes("");
+                      setReportAction("");
+                    }}
                     className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-all duration-200"
                   >
                     Cancel

@@ -1,55 +1,104 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 
-export default function Protected({ children }) {
+export default function Protected({ children, requireProfile = true }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [profileComplete, setProfileComplete] = useState(false);
 
   useEffect(() => {
-    // TEMPORARY: Skip authentication for development
-    // TODO: Re-enable authentication when verification system is ready
-    setIsAuthenticated(true);
-    setIsLoading(false);
-    
-    // Original authentication code (commented out for now)
-    /*
     const checkAuth = async () => {
       const token = localStorage.getItem("sessionToken");
+      const user = JSON.parse(localStorage.getItem("user") || "{}");
       
-      if (!token) {
+      if (!token || !user.id) {
         router.replace("/login");
         return;
       }
       
+      setIsAuthenticated(true);
+      
       try {
-        const response = await fetch('http://localhost:5000/api/auth/status', {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-        });
-        
-        const data = await response.json();
-        
-        if (data.authenticated) {
-          setIsAuthenticated(true);
+        // Check if profile is complete (if required)
+        if (requireProfile && pathname !== "/profile/create") {
+          // First check localStorage for quick validation
+          if (user.profile_completed === true || user.profile_completed === 1) {
+            console.log("✅ Profile marked complete in localStorage");
+            setProfileComplete(true);
+            setIsLoading(false);
+            return;
+          }
+          
+          // If not in localStorage, check backend
+          console.log("🔍 Checking profile completion with backend for user:", user.id);
+          
+          try {
+            const profileResponse = await fetch(`http://localhost:5000/api/profile/${user.id}`);
+            
+            if (!profileResponse.ok) {
+              console.error("❌ Failed to fetch profile, status:", profileResponse.status);
+              // Don't redirect on fetch error, allow access but show warning
+              setProfileComplete(true);
+              setIsLoading(false);
+              return;
+            }
+            
+            const profileData = await profileResponse.json();
+            console.log("📦 Profile data from backend:", profileData);
+            
+            // Check if profile is complete - prioritize profile_completed flag
+            const profile = profileData.profile || profileData;
+            const isComplete = profile.profile_completed === true || 
+                             profile.profile_completed === 1;
+            
+            console.log("Profile completion check:", {
+              profile_completed: profile.profile_completed,
+              isComplete
+            });
+            
+            if (!isComplete) {
+              console.log("⚠️ Profile incomplete, redirecting to profile creation");
+              router.replace("/profile/create");
+              return;
+            }
+            
+            // Update localStorage with complete profile data from backend
+            const updatedUser = { 
+              ...user, 
+              ...profile,
+              profile_completed: true 
+            };
+            localStorage.setItem("user", JSON.stringify(updatedUser));
+            console.log("✅ Profile marked complete, updated localStorage with full profile data");
+            
+            setProfileComplete(true);
+          } catch (fetchError) {
+            console.error("Network error checking profile:", fetchError);
+            // On network error, allow access if we have user data
+            setProfileComplete(true);
+          }
         } else {
-          localStorage.removeItem("sessionToken");
-          localStorage.removeItem("user");
-          router.replace("/login");
+          setProfileComplete(true);
         }
+        
       } catch (err) {
-        console.error("Auth check failed:", err);
-        router.replace("/login");
+        console.error("Profile check failed:", err);
+        // Don't redirect to login on profile check failure, just require profile
+        if (requireProfile && pathname !== "/profile/create") {
+          router.replace("/profile/create");
+        } else {
+          setProfileComplete(true);
+        }
       } finally {
         setIsLoading(false);
       }
     };
     
     checkAuth();
-    */
-  }, [router]);
+  }, [router, pathname, requireProfile]);
 
   if (isLoading) {
     return (
@@ -62,7 +111,7 @@ export default function Protected({ children }) {
     );
   }
 
-  if (!isAuthenticated) {
+  if (!isAuthenticated || (requireProfile && !profileComplete)) {
     return null; // Will redirect
   }
 

@@ -63,9 +63,19 @@ export default function VerifyEmail() {
         
         // Redirect after verification
         setTimeout(() => {
-          const redirectTo = localStorage.getItem("postVerifyRedirect") || "/dashboard";
-          localStorage.removeItem("postVerifyRedirect");
-          router.push(redirectTo);
+          // Check if profile is completed
+          const profileComplete = data.user.profile_completed === true || 
+                                 data.user.profile_completed === 1;
+          
+          if (profileComplete) {
+            // Existing user with complete profile -> dashboard
+            const redirectTo = localStorage.getItem("postVerifyRedirect") || "/dashboard";
+            localStorage.removeItem("postVerifyRedirect");
+            router.push(redirectTo);
+          } else {
+            // New user -> profile creation
+            router.push("/profile/create");
+          }
         }, 1500);
       } else {
         setError(data.error || "Verification failed");
