@@ -253,9 +253,6 @@ export default function MessagesPage() {
                   {/* Chat Header */}
                   <div className="p-4 border-b border-gray-700 bg-gray-800">
                     <h2 className="text-lg font-semibold text-white text-sm break-all">Conversation #{selectedConversation.conversation_id}</h2>
-                    {selectedConversation.item_id && (
-                      <p className="text-sm text-gray-400 mt-1">Found Item #{selectedConversation.item_id}</p>
-                    )}
                   </div>
 
                   {/* Messages */}

@@ -4096,24 +4096,25 @@ def get_messages():
         if not requesting_user_id:
             return jsonify({'error': 'User ID required'}), 400
         
-        # Validate user is part of this conversation using secure ID
+        # Create database connection first
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
+        
+        # Validate user is part of this conversation using secure ID
         cursor.execute('''
             SELECT user_id_1, user_id_2 FROM conversations WHERE secure_id = ?
         ''', (conversation_id,))
         conv = cursor.fetchone()
         
         if not conv:
+            conn.close()
             return jsonify({'error': 'Conversation not found'}), 404
         
-        allowed_user_ids = [conv[0], conv[1]]
+        allowed_user_ids = [conv['user_id_1'], conv['user_id_2']]
         if int(requesting_user_id) not in allowed_user_ids:
             conn.close()
             return jsonify({'error': 'Unauthorized: You are not part of this conversation'}), 403
-        
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
         
         cursor.execute('''
             SELECT 
