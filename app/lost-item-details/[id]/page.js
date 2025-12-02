@@ -1,10 +1,11 @@
 "use client";
-import React, { useState, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import Protected from "@/components/Protected";
 import Navbar from "@/components/Navbar";
 import Sidebar from "@/components/Sidebar";
+import { convertTo12Hour } from "@/utils/timeUtils";
 import PotentialMatchCard from "@/components/PotentialMatchCard";
 import { findPotentialMatches } from "@/utils/matching";
 
@@ -196,7 +197,7 @@ export default function LostItemDetailsPage() {
                   <h1 className="text-2xl font-bold text-gray-900 mb-2">{lostItem.title}</h1>
                   <div className="grid grid-cols-2 gap-4 text-sm text-gray-700">
                     <div>
-                      <span className="font-semibold">Lost on:</span> {new Date(lostItem.date_lost).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}{lostItem.time_lost && ` at ${lostItem.time_lost}`}
+                      <span className="font-semibold">Lost on:</span> {new Date(lostItem.date_lost).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}{lostItem.time_lost && ` at ${convertTo12Hour(lostItem.time_lost)}`}
                     </div>
                     <div>
                       <span className="font-semibold">Location:</span> {lostItem.location_name || lostItem.location}

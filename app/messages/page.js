@@ -229,12 +229,11 @@ export default function MessagesPage() {
                     }`}
                   >
                     <div className="flex justify-between items-start mb-1">
-                      <h3 className="font-semibold text-white text-xs break-all">Conv #{conv.conversation_id.substring(0, 12)}</h3>
+                      <h3 className="font-semibold text-white text-sm break-words">About: {conv.item_title}</h3>
                       <span className="text-xs text-gray-500 flex-shrink-0 ml-2">{formatTime(conv.last_message_time)}</span>
                     </div>
-                    <p className="text-sm text-gray-400 mb-1 truncate">{conv.last_message}</p>
-                    <p className="text-xs text-gray-500 truncate">
-                      Re: {conv.item_title}
+                    <p className="text-xs text-gray-400 truncate">
+                      Conv #{conv.conversation_id.substring(0, 12)}
                     </p>
                     {conv.unread_count > 0 && (
                       <span className="inline-block mt-1 px-2 py-0.5 text-xs bg-blue-600 text-white rounded-full">
@@ -252,7 +251,8 @@ export default function MessagesPage() {
                 <>
                   {/* Chat Header */}
                   <div className="p-4 border-b border-gray-700 bg-gray-800">
-                    <h2 className="text-lg font-semibold text-white text-sm break-all">Conversation #{selectedConversation.conversation_id}</h2>
+                    <h2 className="text-lg font-semibold text-white">About: {selectedConversation.item_title}</h2>
+                    <p className="text-xs text-gray-400 mt-1">Conv #{selectedConversation.conversation_id.substring(0, 12)}</p>
                   </div>
 
                   {/* Messages */}

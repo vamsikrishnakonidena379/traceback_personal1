@@ -3,6 +3,7 @@ import React, { useState, useEffect } from "react";
 import Protected from "@/components/Protected";
 import Navbar from "@/components/Navbar";
 import Sidebar from "@/components/Sidebar";
+import { convertTo12Hour } from "@/utils/timeUtils";
 
 export default function ClaimAttemptsPage() {
   const [attempts, setAttempts] = useState([]);
@@ -148,7 +149,7 @@ export default function ClaimAttemptsPage() {
                             });
                           })()}
                           {attempt.time_found && (
-                            <span className="text-gray-600"> at {attempt.time_found}</span>
+                            <span className="text-gray-600"> at {convertTo12Hour(attempt.time_found)}</span>
                           )}
                         </p>
                       </div>

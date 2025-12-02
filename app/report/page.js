@@ -18,8 +18,8 @@ export default function ReportPage() {
     category: '',
     location_id: '1',
     color: '',
-    date_lost: '',
-    date_found: ''
+    date_lost: ''
+    // date_found removed - backend will use current time
   });
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
@@ -116,14 +116,15 @@ export default function ReportPage() {
       // Prepare form data for submission (including image if present)
       const submitData = new FormData();
 
-      // Validate date (native date picker -> YYYY-MM-DD)
-      const dateFieldName = tab === 'lost' ? 'date_lost' : 'date_found';
-      const dateValue = formData[dateFieldName] || '';
-      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-      if (!dateRegex.test(dateValue)) {
-        setMessage('❌ Please select a valid date');
-        setLoading(false);
-        return;
+      // Validate date only for lost items (found items use current time)
+      if (tab === 'lost') {
+        const dateValue = formData.date_lost || '';
+        const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+        if (!dateRegex.test(dateValue)) {
+          setMessage('❌ Please select a valid date');
+          setLoading(false);
+          return;
+        }
       }
 
       // Title & description
@@ -136,20 +137,22 @@ export default function ReportPage() {
 
       // Provide a default location_id to satisfy backend requirement
       submitData.append('location_id', formData.location_id || '1');
-      // Date and time (automatically capture current ET time)
-      submitData.append(dateFieldName, dateValue);
       
-      // Add current time in ET timezone
-      const timeFieldName = tab === 'lost' ? 'time_lost' : 'time_found';
-      const now = new Date();
-      // Convert to ET (America/New_York)
-      const etTime = now.toLocaleTimeString('en-US', { 
-        timeZone: 'America/New_York',
-        hour12: false,
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-      submitData.append(timeFieldName, etTime);
+      // Date and time - only for lost items (found items use server time)
+      if (tab === 'lost') {
+        submitData.append('date_lost', formData.date_lost);
+        
+        // Add current time in ET timezone
+        const now = new Date();
+        const etTime = now.toLocaleTimeString('en-US', { 
+          timeZone: 'America/New_York',
+          hour12: false,
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+        submitData.append('time_lost', etTime);
+      }
+      // For found items, backend will automatically use current ET time
 
       // Color (required) - contact details are associated with user profile
       submitData.append('color', formData.color || '');
@@ -455,17 +458,20 @@ export default function ReportPage() {
               )}
             </label>
 
-            <label className="block text-sm">
-              Date*
-              <input 
-                type="date" 
-                name={tab === "lost" ? "date_lost" : "date_found"}
-                value={formData[tab === "lost" ? "date_lost" : "date_found"]}
-                onChange={handleInputChange}
-                className="mt-1 w-full rounded-md border border-border bg-panel px-3 py-2" 
-                required
-              />
-            </label>
+            {/* Date field only for lost items - found items use submission time */}
+            {tab === "lost" && (
+              <label className="block text-sm">
+                Date Lost*
+                <input 
+                  type="date" 
+                  name="date_lost"
+                  value={formData.date_lost}
+                  onChange={handleInputChange}
+                  className="mt-1 w-full rounded-md border border-border bg-panel px-3 py-2" 
+                  required
+                />
+              </label>
+            )}
 
             {/* Contact fields removed — contact info is taken from the reporter's profile */}
 

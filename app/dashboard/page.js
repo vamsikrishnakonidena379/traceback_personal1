@@ -8,6 +8,7 @@ import Navbar from "@/components/Navbar";
 import Sidebar from "@/components/Sidebar";
 import ItemCard from "@/components/ItemCard";
 import PotentialMatchCard from "@/components/PotentialMatchCard";
+import { convertTo12Hour } from "@/utils/timeUtils";
 import Reviews from "@/components/Reviews";
 import { findPotentialMatches } from "@/utils/matching";
 import apiService from "@/utils/apiService";
@@ -393,7 +394,7 @@ export default function Dashboard() {
                     </h3>
                   </div>
                   <p className="text-sm text-gray-700 mb-2">
-                    <strong>Found on:</strong> {new Date(foundItem.date_found).toLocaleDateString()}{foundItem.time_found && ` at ${foundItem.time_found}`} at {foundItem.location}
+                    <strong>Found on:</strong> {new Date(foundItem.date_found).toLocaleDateString()}{foundItem.time_found && ` at ${convertTo12Hour(foundItem.time_found)}`} at {foundItem.location}
                   </p>
                   {foundItem.description && (
                     <p className="text-sm text-gray-600 line-clamp-2">
@@ -443,16 +444,9 @@ export default function Dashboard() {
                             {attempt.conversation_id ? `Claimer #${attempt.conversation_id.substring(0, 12)}` : 'Anonymous Claimer'}
                           </h5>
                           {(attempt.success === 1 || attempt.marked_as_potential_at) ? (
-                            <div className="flex items-center gap-2 text-sm text-gray-600">
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                              </svg>
-                              <a href={`mailto:${attempt.user_email}`} className="hover:text-blue-600 underline">
-                                {attempt.user_email}
-                              </a>
-                            </div>
+                            <p className="text-xs text-green-600 font-medium">✓ VERIFIED</p>
                           ) : (
-                            <p className="text-xs text-gray-500 italic">Contact info revealed when verified</p>
+                            <p className="text-xs text-gray-500 italic">Pending verification</p>
                           )}
                         </div>
                       </div>
@@ -917,7 +911,7 @@ export default function Dashboard() {
                             </div>
                             <h3 className="text-lg font-bold text-gray-900 mb-1">{item.title}</h3>
                             <p className="text-xs text-gray-600">
-                              {new Date(item.date_lost).toLocaleDateString()}{item.time_lost && ` at ${item.time_lost}`} • {item.location}
+                              {new Date(item.date_lost).toLocaleDateString()}{item.time_lost && ` at ${convertTo12Hour(item.time_lost)}`} • {item.location}
                             </p>
                           </div>
                           <div className="p-4">
@@ -967,7 +961,7 @@ export default function Dashboard() {
                             </div>
                             <h3 className="text-lg font-bold text-gray-900 mb-1">{item.title}</h3>
                             <p className="text-xs text-gray-600">
-                              {new Date(item.date_found).toLocaleDateString()}{item.time_found && ` at ${item.time_found}`} • {item.location_name || item.location}
+                              {new Date(item.date_found).toLocaleDateString()}{item.time_found && ` at ${convertTo12Hour(item.time_found)}`} • {item.location_name || item.location}
                             </p>
                           </div>
                           <div className="p-4">

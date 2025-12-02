@@ -1,10 +1,11 @@
 "use client";
-import React, { useState, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import Protected from "@/components/Protected";
 import Navbar from "@/components/Navbar";
 import Sidebar from "@/components/Sidebar";
+import { convertTo12Hour } from "@/utils/timeUtils";
 
 export default function FoundItemDetailsPage() {
   const params = useParams();
@@ -289,7 +290,7 @@ export default function FoundItemDetailsPage() {
                       <h1 className="text-2xl font-bold text-gray-900 mb-2">{foundItem.title}</h1>
                       <div className="grid grid-cols-2 gap-4 text-sm text-gray-700">
                         <div>
-                          <span className="font-semibold">Found on:</span> {new Date(foundItem.date_found).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}{foundItem.time_found && ` at ${foundItem.time_found}`}
+                          <span className="font-semibold">Found on:</span> {new Date(foundItem.date_found).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}{foundItem.time_found && ` at ${convertTo12Hour(foundItem.time_found)}`}
                         </div>
                         <div>
                           <span className="font-semibold">Location:</span> {foundItem.location_name || foundItem.location}
@@ -372,16 +373,9 @@ export default function FoundItemDetailsPage() {
                             {attempt.conversation_id ? `Claimer #${attempt.conversation_id.substring(0, 12)}` : 'Anonymous Claimer'}
                           </h3>
                           {(attempt.success === 1 || attempt.marked_as_potential_at) ? (
-                            <div className="flex items-center gap-2 text-sm text-gray-600">
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                              </svg>
-                              <a href={`mailto:${attempt.user_email}`} className="hover:text-blue-600 underline">
-                                {attempt.user_email}
-                              </a>
-                            </div>
+                            <p className="text-xs text-green-600 font-medium">✓ VERIFIED</p>
                           ) : (
-                            <p className="text-xs text-gray-500 italic">Contact info revealed when verified</p>
+                            <p className="text-xs text-gray-500 italic">Pending verification</p>
                           )}
                         </div>
                       </div>
@@ -468,8 +462,15 @@ export default function FoundItemDetailsPage() {
                     <button
                       onClick={async () => {
                         const user = JSON.parse(localStorage.getItem('user') || '{}');
-                        const userId1 = Math.min(user.id, attempt.user_id || 0);
-                        const userId2 = Math.max(user.id, attempt.user_id || 0);
+                        
+                        // Check if the claimer has a registered account
+                        if (!attempt.user_id) {
+                          alert('⚠️ This claimer has not registered yet. They cannot receive messages until they create an account. Please contact them via their email: ' + attempt.user_email);
+                          return;
+                        }
+                        
+                        const userId1 = Math.min(user.id, attempt.user_id);
+                        const userId2 = Math.max(user.id, attempt.user_id);
                         
                         // Create conversation on backend and get secure ID
                         try {
@@ -487,19 +488,25 @@ export default function FoundItemDetailsPage() {
                           if (data.conversation_id) {
                             window.location.href = `/messages?conversation=${data.conversation_id}`;
                           } else {
-                            alert('Failed to create conversation');
+                            alert('Failed to create conversation: ' + (data.error || 'Unknown error'));
                           }
                         } catch (error) {
                           console.error('Error creating conversation:', error);
-                          alert('Failed to create conversation');
+                          alert('Failed to create conversation. Please try again.');
                         }
                       }}
-                      className="w-full mb-3 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                      disabled={!attempt.user_id}
+                      className={`w-full mb-3 px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
+                        attempt.user_id 
+                          ? 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer' 
+                          : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      }`}
+                      title={!attempt.user_id ? 'This claimer has not registered yet' : 'Send a message to this claimer'}
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                       </svg>
-                      Contact This Claimer
+                      {attempt.user_id ? 'Contact This Claimer' : 'Not Registered'}
                     </button>
 
                     {/* Mark as Potential Claimer OR Declare as Final Claimer */}

@@ -17,15 +17,36 @@ export default function Moderation() {
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
+  const [isModerator, setIsModerator] = useState(false);
+  const [checkingAccess, setCheckingAccess] = useState(true);
 
   useEffect(() => {
     const user = JSON.parse(localStorage.getItem('user') || '{}');
     setCurrentUser(user);
-    loadReports();
-    loadSuccessfulReturns();
-    loadBugReports();
+    checkModeratorAccess(user);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const checkModeratorAccess = async (user) => {
+    try {
+      const response = await fetch(`http://localhost:5000/api/check-moderator?email=${encodeURIComponent(user.email)}`);
+      const data = await response.json();
+      
+      if (response.ok && data.is_moderator) {
+        setIsModerator(true);
+        loadReports();
+        loadSuccessfulReturns();
+        loadBugReports();
+      } else {
+        setIsModerator(false);
+      }
+    } catch (error) {
+      console.error('Error checking moderator access:', error);
+      setIsModerator(false);
+    } finally {
+      setCheckingAccess(false);
+    }
+  };
 
   const loadReports = async () => {
     try {
@@ -144,6 +165,54 @@ export default function Moderation() {
   const openBugReports = bugReports.filter(r => r.status === 'OPEN');
   const inProgressBugReports = bugReports.filter(r => r.status === 'IN_PROGRESS');
   const resolvedBugReports = bugReports.filter(r => r.status === 'RESOLVED');
+
+  if (checkingAccess) {
+    return (
+      <Protected>
+        <Navbar />
+        <div className="flex min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100">
+          <Sidebar />
+          <main className="mx-auto w-full max-w-7xl flex-1 p-6">
+            <div className="text-center py-12">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
+              <p className="mt-4 text-gray-600">Checking access...</p>
+            </div>
+          </main>
+        </div>
+      </Protected>
+    );
+  }
+
+  if (!isModerator) {
+    return (
+      <Protected>
+        <Navbar />
+        <div className="flex min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100">
+          <Sidebar />
+          <main className="mx-auto w-full max-w-7xl flex-1 p-6">
+            <div className="text-center py-12">
+              <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-8 max-w-md mx-auto">
+                <div className="text-6xl mb-4">🚫</div>
+                <h2 className="text-2xl font-bold text-red-900 mb-2">Access Denied</h2>
+                <p className="text-red-700 mb-4">
+                  You do not have moderator privileges to access this page.
+                </p>
+                <p className="text-sm text-red-600">
+                  Only authorized moderators can view the moderation dashboard.
+                </p>
+                <Link 
+                  href="/dashboard"
+                  className="mt-6 inline-block px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-black transition-colors"
+                >
+                  Return to Dashboard
+                </Link>
+              </div>
+            </div>
+          </main>
+        </div>
+      </Protected>
+    );
+  }
 
   if (loading) {
     return (

@@ -17,6 +17,25 @@ from werkzeug.security import generate_password_hash
 import uuid
 from profile_manager import create_profile_endpoints
 from ml_matching_service import MLMatchingService
+import pytz
+
+# Timezone configuration - All times in ET (Eastern Time)
+ET = pytz.timezone('America/New_York')
+
+def get_et_now():
+    """Get current time in ET timezone"""
+    return datetime.now(ET)
+
+def get_et_now_str():
+    """Get current ET time as string (for SQLite storage)"""
+    return get_et_now().strftime('%Y-%m-%d %H:%M:%S')
+
+def parse_et_datetime(dt_str):
+    """Parse datetime string as ET timezone"""
+    if not dt_str:
+        return None
+    dt = datetime.strptime(dt_str, '%Y-%m-%d %H:%M:%S')
+    return ET.localize(dt)
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'dev-secret-key-2025-comprehensive'
@@ -92,14 +111,20 @@ def get_notification_service():
             return None
     return notification_service
 
-def get_db():
-    """Get database connection with row factory"""
+def get_db_connection(use_row_factory=True):
+    """Get database connection with timeout and WAL mode"""
     if not os.path.exists(DB_PATH):
         return None
     
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = sqlite3.connect(DB_PATH, timeout=10.0)
+    conn.execute('PRAGMA journal_mode=WAL')  # Enable Write-Ahead Logging for better concurrency
+    if use_row_factory:
+        conn.row_factory = sqlite3.Row
     return conn
+
+def get_db():
+    """Get database connection with row factory, timeout, and WAL mode"""
+    return get_db_connection(use_row_factory=True)
 
 def dict_from_row(row):
     """Convert sqlite3.Row to dictionary"""
@@ -140,7 +165,7 @@ def health():
         return jsonify({
             'status': 'error',
             'message': 'Database not found. Run generate_100k_database.py first',
-            'timestamp': datetime.now().isoformat()
+            'timestamp': get_et_now().isoformat()
         }), 500
     
     try:
@@ -171,14 +196,14 @@ def health():
                 'categories': categories_count,
                 'locations': locations_count
             },
-            'timestamp': datetime.now().isoformat()
+            'timestamp': get_et_now().isoformat()
         })
         
     except Exception as e:
         return jsonify({
             'status': 'error',
             'message': str(e),
-            'timestamp': datetime.now().isoformat()
+            'timestamp': get_et_now().isoformat()
         }), 500
 
 @app.route('/api/categories')
@@ -373,8 +398,16 @@ def get_found_items():
         include_private = request.args.get('include_private', 'false').lower() == 'true'  # For ML matching
         user_email = request.args.get('user_email', '').strip()  # Current user's email for matching
         
-        # Build query - exclude claimed items
+        # Build query - exclude claimed items and items in claim window
         where_conditions = ["(f.status IS NULL OR f.status != 'CLAIMED')"]  # Only unclaimed items
+        
+        # Exclude items with potential claimers (in claim window)
+        where_conditions.append("""f.rowid NOT IN (
+            SELECT found_item_id 
+            FROM claim_attempts 
+            WHERE success = 1 
+              AND marked_as_potential_at IS NOT NULL
+        )""")
         
         params = []
         
@@ -384,7 +417,8 @@ def get_found_items():
         # 2. Moderators viewing abuse reports
         # This check is ONLY for public browse, not for dashboard or admin views
         if not include_private:  # Public browse view
-            where_conditions.append("datetime(f.created_at) <= datetime('now', '-3 days')")
+            # Use localtime to match the timezone of created_at timestamps
+            where_conditions.append("datetime(f.created_at) <= datetime('now', 'localtime', '-3 days')")
         
         if category_id:
             where_conditions.append('f.category_id = ?')
@@ -749,8 +783,8 @@ def get_security_questions(found_item_id):
             return jsonify({'error': 'Item not found or already claimed'}), 404
         
         # Check if item is within 3-day privacy period
-        item_created = datetime.strptime(item['created_at'], '%Y-%m-%d %H:%M:%S')
-        days_since_posted = (datetime.now() - item_created).days
+        item_created = parse_et_datetime(item['created_at'])
+        days_since_posted = (get_et_now() - item_created).days
         
         if days_since_posted < 3 and user_email:
             # Item is private - check if user has a matching lost item (>70% match)
@@ -1166,7 +1200,7 @@ def search_items():
                 if item_dict.get('is_private'):
                     if item_dict.get('privacy_expires_at'):
                         expires_at = datetime.fromisoformat(item_dict['privacy_expires_at'].replace('Z', '+00:00'))
-                        if datetime.now() < expires_at.replace(tzinfo=None):
+                        if get_et_now() < expires_at.replace(tzinfo=None):
                             item_dict['description'] = 'Details hidden - verify ownership to view'
                             item_dict['finder_name'] = 'Anonymous'
                 
@@ -1194,7 +1228,7 @@ def get_stats():
         
         # Calculate date 7 days ago in ET
         from datetime import datetime, timedelta
-        seven_days_ago = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d %H:%M:%S')
+        seven_days_ago = (get_et_now() - timedelta(days=7)).strftime('%Y-%m-%d %H:%M:%S')
         
         # Total found items (including historical ones from successful_returns)
         active_found = conn.execute('SELECT COUNT(*) as count FROM found_items').fetchone()['count']
@@ -1344,7 +1378,7 @@ def login():
         if suspension_until:
             from datetime import datetime
             suspension_date = datetime.fromisoformat(suspension_until)
-            current_date = datetime.now()
+            current_date = get_et_now()
             
             # Check if suspension has expired
             if current_date < suspension_date:
@@ -1893,7 +1927,7 @@ def report_lost_item():
         # No privacy expiry needed for lost items
         
         # Insert lost item with local ET time
-        current_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        current_time_str = get_et_now_str()
         cursor = conn.execute('''
             INSERT INTO lost_items (
                 title, description, category_id, location_id, color, size,
@@ -1950,8 +1984,8 @@ def report_found_item():
         
         print(f"📝 Found item report received: {data.get('title', 'Unknown')}")
         
-        # Validate required fields
-        required_fields = ['title', 'description', 'category_id', 'location_id', 'date_found', 'user_name', 'user_email']
+        # Validate required fields (removed date_found as we'll use current time)
+        required_fields = ['title', 'description', 'category_id', 'location_id', 'user_name', 'user_email']
         for field in required_fields:
             if not data.get(field):
                 return jsonify({'error': f'{field.replace("_", " ").title()} is required'}), 400
@@ -2013,12 +2047,15 @@ def report_found_item():
                 location_id = cursor.lastrowid
                 print(f"🆕 Created new location: {custom_location} (ID: {location_id})")
         
-        # Calculate privacy expiry (3 days from now)
-        privacy_expiry = datetime.now() + timedelta(days=3)
+        # Calculate privacy expiry (3 days from now) - ET timezone
+        privacy_expiry = get_et_now() + timedelta(days=3)
         privacy_expiry_str = privacy_expiry.strftime('%Y-%m-%d %H:%M:%S')
         
-        # Insert found item with local ET time
-        current_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        # Use current ET time for both date_found and created_at
+        current_time_str = get_et_now_str()
+        current_date = get_et_now().strftime('%Y-%m-%d')
+        current_time_only = get_et_now().strftime('%H:%M:%S')
+        
         cursor = conn.execute('''
             INSERT INTO found_items (
                 title, description, category_id, location_id, color, size,
@@ -2033,8 +2070,8 @@ def report_found_item():
             location_id,
             data.get('color', ''),
             data.get('size', ''),
-            data.get('date_found'),
-            data.get('time_found', ''),
+            current_date,  # Use current date instead of user-provided
+            current_time_only,  # Use current time
             data.get('user_name'),  # Using user_name as finder_name
             data.get('user_email'),  # Using user_email as finder_email
             data.get('user_phone', ''),  # Using user_phone as finder_phone
@@ -2235,11 +2272,21 @@ def get_review(review_id):
 # ============================================
 
 def is_admin(user_email):
-    """Check if user is an admin"""
+    """Check if user is a moderator (has moderator privileges in database)"""
     if not user_email:
         return False
-    email_lower = user_email.lower()
-    return email_lower in ['aksh@kent.edu', 'achapala@kent.edu', 'vkoniden@kent.edu', 'ldommara@kent.edu', 'bdharav1@kent.edu', 'psamala@kent.edu']
+    
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('SELECT is_moderator FROM users WHERE email = ?', (user_email,))
+        user = cursor.fetchone()
+        conn.close()
+        
+        return user and user[0] == 1
+    except Exception as e:
+        print(f"Error checking moderator status: {e}")
+        return False
 
 
 @app.route('/api/report-abuse', methods=['POST'])
@@ -2293,7 +2340,7 @@ def report_abuse():
 
 @app.route('/api/moderation/action', methods=['POST'])
 def moderation_action():
-    """Take moderation action on a report"""
+    """Take moderation action on a report (moderators only)"""
     try:
         data = request.get_json()
         
@@ -2304,6 +2351,14 @@ def moderation_action():
         
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
+        
+        # Check if user is a moderator
+        cursor.execute('SELECT is_moderator FROM users WHERE email = ?', (data['moderator_email'],))
+        user = cursor.fetchone()
+        
+        if not user or not user[0]:
+            conn.close()
+            return jsonify({'error': 'Access denied. Moderator privileges required.'}), 403
         
         action_type = data['action_type']
         reason = data['reason']
@@ -2709,7 +2764,7 @@ def get_claim_attempts_for_item(found_item_id):
                         )
                     ''')
                     
-                    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    current_time = get_et_now_str()
                     temp_cursor.execute('''
                         INSERT INTO conversations (secure_id, user_id_1, user_id_2, item_id, created_at)
                         VALUES (?, ?, ?, ?, ?)
@@ -2796,7 +2851,7 @@ def get_my_claim_attempts():
                 # Calculate if contact info should still be visible (5 days from finalization)
                 try:
                     finalized_dt = datetime.strptime(attempt_dict['finalized_at'], '%Y-%m-%d %H:%M:%S')
-                    days_since_finalized = (datetime.now() - finalized_dt).days
+                    days_since_finalized = (get_et_now() - finalized_dt).days
                     show_contact_info = days_since_finalized < 5
                     
                     attempt_dict['claim_status'] = 'CLAIMED'
@@ -2825,7 +2880,7 @@ def get_my_claim_attempts():
                 attempt_dict['show_contact_info'] = False
                 # Fallback: Set date_found to attempted_at if still null
                 if not attempt_dict.get('date_found'):
-                    attempt_dict['date_found'] = attempt_dict['attempted_at'].split()[0] if attempt_dict.get('attempted_at') else datetime.now().strftime('%Y-%m-%d')
+                    attempt_dict['date_found'] = attempt_dict['attempted_at'].split()[0] if attempt_dict.get('attempted_at') else get_et_now().strftime('%Y-%m-%d')
                 # Fallback: Set default values if still null
                 if not attempt_dict.get('category'):
                     attempt_dict['category'] = 'Unknown'
@@ -2950,7 +3005,7 @@ def submit_claim_answers():
         if item_details['claimed_date']:
             try:
                 claimed_date = datetime.strptime(item_details['claimed_date'], '%Y-%m-%d %H:%M:%S')
-                days_since_claimed = (datetime.now() - claimed_date).days
+                days_since_claimed = (get_et_now() - claimed_date).days
                 if days_since_claimed >= 3:
                     conn.close()
                     return jsonify({
@@ -2969,7 +3024,7 @@ def submit_claim_answers():
         claimer_user_id = user_record['id'] if user_record else None
         
         # Use local ET time for attempted_at
-        attempted_at_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        attempted_at_str = get_et_now_str()
         
         conn.execute('''
             INSERT INTO claim_attempts 
@@ -2983,7 +3038,7 @@ def submit_claim_answers():
         notification_message = f"An anonymous user has submitted answers to claim your found item: {item_details['title']}. Review their answers in your dashboard."
         
         # Use local ET time for notification created_at
-        notification_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        notification_time_str = get_et_now_str()
         
         conn.execute('''
             INSERT OR REPLACE INTO notifications 
@@ -3091,7 +3146,7 @@ def update_claim_attempt():
         # Update the claim attempt
         # If marking as successful, store the timestamp in ET
         if success:
-            marked_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            marked_time = get_et_now_str()
             cursor.execute('''
                 UPDATE claim_attempts 
                 SET success = ?, marked_as_potential_at = ?
@@ -3111,6 +3166,15 @@ def update_claim_attempt():
         # If marking as successful (potential claimer), DO NOT mark item as CLAIMED yet
         # Just create notification for potential claimer
         if success:
+            # Check if this is the FIRST potential claimer
+            cursor.execute('''
+                SELECT COUNT(*) as count
+                FROM claim_attempts
+                WHERE found_item_id = ? AND success = 1
+            ''', (found_item_id,))
+            
+            is_first_claimer = cursor.fetchone()['count'] == 1
+            
             # Create notification for potential claimer
             cursor.execute('''
                 SELECT f.title, f.finder_email, u.full_name as finder_name
@@ -3122,13 +3186,23 @@ def update_claim_attempt():
             item = cursor.fetchone()
             if item:
                 notification_msg = f"Good news! You have been identified as a potential claimer for '{item['title']}'. The item will remain open for 3 days. The owner will contact you if they need more information or when the item is ready for pickup."
-                notification_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                notification_time = get_et_now_str()
                 
                 cursor.execute('''
                     INSERT OR REPLACE INTO notifications 
                     (user_email, notification_type, item_id, item_type, title, message, is_read, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, 0, ?)
                 ''', (user_email, 'POTENTIAL_CLAIMER', found_item_id, 'found', f"Potential claimer for {item['title']}", notification_msg, notification_time))
+                
+                # If this is the FIRST potential claimer, send email to all users
+                if is_first_claimer:
+                    try:
+                        from email_notification_service import EmailNotificationService
+                        email_service = EmailNotificationService()
+                        email_service.notify_users_of_claimed_item(found_item_id)
+                        print(f"📧 Triggered email notifications for item {found_item_id} (first claimer)")
+                    except Exception as email_error:
+                        print(f"⚠️  Failed to send claimed item emails: {email_error}")
         
         conn.commit()
         conn.close()
@@ -3230,14 +3304,14 @@ def finalize_claim():
                 # Fallback to attempted_at if marked_as_potential_at is not set (for old records)
                 marked_at = datetime.strptime(item_data['attempted_at'], '%Y-%m-%d %H:%M:%S')
             
-            current_time = datetime.now()
+            current_time = get_et_now()
             seconds_since_marked = (current_time - marked_at).total_seconds()
             days_since_marked = seconds_since_marked / 86400
         except Exception as e:
             # Fallback to created_at if parsing fails
             try:
                 marked_at = datetime.strptime(item_data['created_at'], '%Y-%m-%d %H:%M:%S')
-                current_time = datetime.now()
+                current_time = get_et_now()
                 seconds_since_marked = (current_time - marked_at).total_seconds()
                 days_since_marked = seconds_since_marked / 86400
             except:
@@ -3258,7 +3332,7 @@ def finalize_claim():
         
         # For storing in the database, calculate days for historical accuracy
         date_found = datetime.strptime(item_data['date_found'], '%Y-%m-%d')
-        days_since_found = (datetime.now() - date_found).days
+        days_since_found = (get_et_now() - date_found).days
         
         # Generate unique 6-digit verification code
         import random
@@ -3307,7 +3381,7 @@ def finalize_claim():
         
         # Create notification for final claimer - successful claim
         notification_msg = f"🎉 Congratulations! Your claim for '{item_data['title']}' has been finalized. The owner has chosen to give you this item. You can view this in your successful claims history."
-        notification_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        notification_time = get_et_now_str()
         
         cursor.execute('''
             INSERT INTO notifications 
@@ -3575,7 +3649,7 @@ def get_claimed_items():
                     # Calculate time remaining (3 days from first potential claimer marked)
                     attempted_at = datetime.strptime(item['claimed_date'], '%Y-%m-%d %H:%M:%S')
                     deadline = attempted_at + timedelta(days=3)
-                    time_remaining = deadline - datetime.now()
+                    time_remaining = deadline - get_et_now()
                     
                     if time_remaining.total_seconds() > 0:
                         # Calculate days, hours, minutes, seconds
@@ -3822,15 +3896,26 @@ def create_abuse_report():
 
 @app.route('/api/reports', methods=['GET'])
 def get_abuse_reports():
-    """Get all abuse reports with full details (admin only)"""
+    """Get all abuse reports with full details (moderators only)"""
     try:
         # Get query parameters
         status = request.args.get('status')
         admin_email = request.args.get('admin_email')
         
+        if not admin_email:
+            return jsonify({'error': 'Email required'}), 400
+        
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
+        
+        # Check if user is a moderator
+        cursor.execute('SELECT is_moderator FROM users WHERE email = ?', (admin_email,))
+        user = cursor.fetchone()
+        
+        if not user or not user['is_moderator']:
+            conn.close()
+            return jsonify({'error': 'Access denied. Moderator privileges required.'}), 403
         
         # Build query with joins to get full details
         # Use stored target user info as fallback when item is deleted
@@ -4035,43 +4120,57 @@ def get_conversations():
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
-        # Get unique conversations with last message
+        # Get unique conversations with last message - ONLY for conversations where user is a participant
+        # Convert user_id to int for proper comparison
+        user_id_int = int(user_id)
+        
         cursor.execute('''
             SELECT 
-                m1.conversation_id,
-                m1.item_id,
-                m1.item_type,
-                m1.item_title,
+                c.secure_id as conversation_id,
+                c.item_id,
+                'FOUND' as item_type,
+                COALESCE(fi.title, 'Item') as item_title,
                 CASE 
-                    WHEN m1.sender_id = ? THEN m1.receiver_id
-                    ELSE m1.sender_id
+                    WHEN c.user_id_1 = ? THEN c.user_id_2
+                    ELSE c.user_id_1
                 END as other_user_id,
                 CASE 
-                    WHEN m1.sender_id = ? THEN 
-                        CASE WHEN m1.receiver_id = -1 THEN '[Deleted User]' ELSE m1.receiver_name END
+                    WHEN c.user_id_1 = ? THEN 
+                        COALESCE(u2.full_name, 'User #' || c.user_id_2)
                     ELSE 
-                        CASE WHEN m1.sender_id = -1 THEN '[Deleted User]' ELSE m1.sender_name END
+                        COALESCE(u1.full_name, 'User #' || c.user_id_1)
                 END as other_user_name,
                 CASE 
-                    WHEN m1.sender_id = ? THEN 
-                        CASE WHEN m1.receiver_id = -1 THEN 'deleted@traceback.local' ELSE m1.receiver_email END
-                    ELSE 
-                        CASE WHEN m1.sender_id = -1 THEN 'deleted@traceback.local' ELSE m1.sender_email END
+                    WHEN c.user_id_1 = ? THEN u2.email
+                    ELSE u1.email
                 END as other_user_email,
-                m1.message_text as last_message,
-                m1.created_at as last_message_time,
-                SUM(CASE WHEN m1.receiver_id = ? AND m1.is_read = 0 THEN 1 ELSE 0 END) as unread_count
-            FROM messages m1
+                '' as last_message,
+                COALESCE(last_msg.created_at, c.created_at) as last_message_time,
+                COALESCE(unread.count, 0) as unread_count
+            FROM conversations c
+            LEFT JOIN found_items fi ON c.item_id = fi.rowid
+            LEFT JOIN users u1 ON c.user_id_1 = u1.id
+            LEFT JOIN users u2 ON c.user_id_2 = u2.id
             INNER JOIN (
-                SELECT conversation_id, MAX(created_at) as max_time
+                SELECT conversation_id, created_at
+                FROM messages m1
+                WHERE created_at = (
+                    SELECT MAX(created_at) 
+                    FROM messages m2 
+                    WHERE m2.conversation_id = m1.conversation_id
+                )
+            ) last_msg ON last_msg.conversation_id = c.secure_id
+            LEFT JOIN (
+                SELECT conversation_id, COUNT(*) as count
                 FROM messages
-                WHERE sender_id = ? OR receiver_id = ?
+                WHERE receiver_id = ? AND is_read = 0
                 GROUP BY conversation_id
-            ) m2 ON m1.conversation_id = m2.conversation_id AND m1.created_at = m2.max_time
-            WHERE m1.sender_id = ? OR m1.receiver_id = ?
-            GROUP BY m1.conversation_id
-            ORDER BY m1.created_at DESC
-        ''', (user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id))
+            ) unread ON unread.conversation_id = c.secure_id
+            WHERE (c.user_id_1 = ? OR c.user_id_2 = ?)
+              AND c.user_id_1 > 0 AND c.user_id_2 > 0
+              AND c.user_id_1 != c.user_id_2
+            ORDER BY last_message_time DESC
+        ''', (user_id_int, user_id_int, user_id_int, user_id_int, user_id_int, user_id_int))
         
         conversations = [dict(row) for row in cursor.fetchall()]
         conn.close()
@@ -4157,9 +4256,17 @@ def create_conversation():
         item_id = data.get('item_id')
         requester_id = data.get('requester_id')
         
+        # Validate all required fields
+        if not all([user_id_1, user_id_2, item_id, requester_id]):
+            return jsonify({'error': 'Missing required fields'}), 400
+        
+        # Validate user IDs are valid (not 0 or None)
+        if user_id_1 == 0 or user_id_2 == 0:
+            return jsonify({'error': 'Invalid user ID. One or both users may not be registered.'}), 400
+        
         # Validate requester is one of the participants
         if requester_id not in [user_id_1, user_id_2]:
-            return jsonify({'error': 'Unauthorized'}), 403
+            return jsonify({'error': 'Unauthorized: You are not a participant in this conversation'}), 403
         
         # Create a much stronger secure ID using multiple hash layers with salt
         import hashlib
@@ -4169,8 +4276,8 @@ def create_conversation():
         # Use timestamp and random salt for additional entropy
         conversation_key = f"{user_id_1}_{user_id_2}_{item_id}"
         
-        # Check if conversation already exists
-        conn_check = sqlite3.connect(DB_PATH)
+        # Check if conversation already exists with retry logic
+        conn_check = sqlite3.connect(DB_PATH, timeout=10.0)
         cursor_check = conn_check.cursor()
         cursor_check.execute('''
             SELECT secure_id FROM conversations 
@@ -4194,8 +4301,9 @@ def create_conversation():
             secure_bytes = hashlib.pbkdf2_hmac('sha256', combined.encode(), salt.encode(), 100000)
             secure_id = secure_bytes.hex()[:32]  # 32 character secure ID
         
-        # Store the mapping in database
-        conn = sqlite3.connect(DB_PATH)
+        # Store the mapping in database with retry logic
+        conn = sqlite3.connect(DB_PATH, timeout=10.0)
+        conn.execute('PRAGMA journal_mode=WAL')  # Enable Write-Ahead Logging for better concurrency
         cursor = conn.cursor()
         
         # Create conversations table if it doesn't exist
@@ -4209,10 +4317,10 @@ def create_conversation():
             )
         ''')
         
-        # Insert new conversation
-        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        # Insert new conversation (use INSERT OR IGNORE to handle race conditions)
+        current_time = get_et_now_str()
         cursor.execute('''
-            INSERT INTO conversations (secure_id, user_id_1, user_id_2, item_id, created_at)
+            INSERT OR IGNORE INTO conversations (secure_id, user_id_1, user_id_2, item_id, created_at)
             VALUES (?, ?, ?, ?, ?)
         ''', (secure_id, user_id_1, user_id_2, item_id, current_time))
         
@@ -4312,7 +4420,7 @@ def send_message():
         cursor = conn.cursor()
         
         # Use ET local time for message timestamp
-        current_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        current_time_str = get_et_now_str()
         
         cursor.execute('''
             INSERT INTO messages (
@@ -4626,7 +4734,8 @@ def get_user_reports_with_matches(user_id):
             ORDER BY l.created_at DESC
         """, (user_email,)).fetchall()
         
-        # Get user's found items (including claimed ones for dashboard)
+        # Get user's found items (show ALL items owner uploaded until deleted from database)
+        # Owner needs to see ALL their items to access "View Responses" and make decisions
         found_items = conn.execute("""
             SELECT f.rowid as id, f.category_id, f.location_id, f.title, f.description, 
                    f.color, f.size, f.image_filename, f.date_found, f.time_found,
@@ -5780,7 +5889,7 @@ def get_successful_returns():
                 # Calculate if contact info should still be visible (7 days from finalization for owners)
                 try:
                     finalized_dt = datetime.strptime(ret_dict['finalized_at'], '%Y-%m-%d %H:%M:%S')
-                    days_since_finalized = (datetime.now() - finalized_dt).days
+                    days_since_finalized = (get_et_now() - finalized_dt).days
                     ret_dict['show_contact_info'] = days_since_finalized < 7
                     ret_dict['contact_visible_days_remaining'] = max(0, 7 - days_since_finalized)
                 except Exception as e:
@@ -5819,7 +5928,7 @@ def get_successful_returns():
                 # Calculate if contact info should still be visible (7 days from finalization)
                 try:
                     finalized_dt = datetime.strptime(claim_dict['finalized_at'], '%Y-%m-%d %H:%M:%S')
-                    days_since_finalized = (datetime.now() - finalized_dt).days
+                    days_since_finalized = (get_et_now() - finalized_dt).days
                     claim_dict['show_contact_info'] = days_since_finalized < 7
                     claim_dict['contact_visible_days_remaining'] = max(0, 7 - days_since_finalized)
                 except Exception as e:
@@ -6018,9 +6127,35 @@ def get_public_profile(user_id):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/check-moderator', methods=['GET'])
+def check_moderator_access():
+    """Check if a user has moderator access"""
+    try:
+        email = request.args.get('email')
+        
+        if not email:
+            return jsonify({'error': 'Email required', 'is_moderator': False}), 400
+        
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT is_moderator FROM users WHERE email = ?', (email,))
+        user = cursor.fetchone()
+        conn.close()
+        
+        if user and user['is_moderator']:
+            return jsonify({'is_moderator': True}), 200
+        else:
+            return jsonify({'is_moderator': False, 'error': 'Access denied'}), 403
+    
+    except Exception as e:
+        print(f"Error checking moderator: {e}")
+        return jsonify({'error': str(e), 'is_moderator': False}), 500
+
 @app.route('/api/moderation/successful-returns', methods=['GET'])
 def get_all_successful_returns_moderation():
-    """Get all successful returns for moderation purposes"""
+    """Get all successful returns for moderation purposes (moderators only)"""
     try:
         email = request.args.get('email')
         
@@ -6030,6 +6165,14 @@ def get_all_successful_returns_moderation():
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
+        
+        # Check if user is a moderator
+        cursor.execute('SELECT is_moderator FROM users WHERE email = ?', (email,))
+        user = cursor.fetchone()
+        
+        if not user or not user['is_moderator']:
+            conn.close()
+            return jsonify({'error': 'Access denied. Moderator privileges required.'}), 403
         
         # Get all successful returns with contact info
         cursor.execute('''
@@ -6113,7 +6256,7 @@ def submit_bug_report():
 
 @app.route('/api/moderation/bug-reports', methods=['GET'])
 def get_bug_reports():
-    """Get all bug reports for moderation"""
+    """Get all bug reports for moderation (moderators only)"""
     try:
         email = request.args.get('email')
         
@@ -6123,6 +6266,14 @@ def get_bug_reports():
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
+        
+        # Check if user is a moderator
+        cursor.execute('SELECT is_moderator FROM users WHERE email = ?', (email,))
+        user = cursor.fetchone()
+        
+        if not user or not user['is_moderator']:
+            conn.close()
+            return jsonify({'error': 'Access denied. Moderator privileges required.'}), 403
         
         cursor.execute('''
             SELECT * FROM bug_reports
@@ -6163,12 +6314,24 @@ def get_bug_reports():
 
 @app.route('/api/moderation/bug-reports/<int:report_id>', methods=['PUT'])
 def update_bug_report(report_id):
-    """Update bug report status"""
+    """Update bug report status (moderators only)"""
     try:
         data = request.json
+        moderator_email = data.get('moderator_email')
+        
+        if not moderator_email:
+            return jsonify({'error': 'Moderator email required'}), 400
         
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
+        
+        # Check if user is a moderator
+        cursor.execute('SELECT is_moderator FROM users WHERE email = ?', (moderator_email,))
+        user = cursor.fetchone()
+        
+        if not user or not user[0]:
+            conn.close()
+            return jsonify({'error': 'Access denied. Moderator privileges required.'}), 403
         
         update_fields = []
         params = []

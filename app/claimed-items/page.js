@@ -5,6 +5,7 @@ import Link from 'next/link';
 import Protected from '@/components/Protected';
 import Navbar from '@/components/Navbar';
 import Sidebar from '@/components/Sidebar';
+import { convertTo12Hour } from '@/utils/timeUtils';
 
 export default function ClaimedItemsPage() {
   const [claimedItems, setClaimedItems] = useState([]);
@@ -304,13 +305,7 @@ export default function ClaimedItemsPage() {
                                 });
                                 
                                 if (item.time_found) {
-                                  // Convert 24-hour format to 12-hour format
-                                  const [hours24, minutes] = item.time_found.split(':');
-                                  const hours = parseInt(hours24);
-                                  const ampm = hours >= 12 ? 'PM' : 'AM';
-                                  const hours12 = hours % 12 || 12;
-                                  const timeStr = `${hours12}:${minutes} ${ampm}`;
-                                  return `${dateStr} at ${timeStr}`;
+                                  return `${dateStr} at ${convertTo12Hour(item.time_found)}`;
                                 }
                                 return dateStr;
                               } catch (e) {
@@ -414,9 +409,9 @@ export default function ClaimedItemsPage() {
                         );
                       }
                       
-                      // Check if time has expired (20 seconds)
+                      // Check if time has expired (3 days)
                       const timeRemaining = getTimeRemaining(item.claimed_date);
-                      const isExpired = timeRemaining === 'Expired' || parseInt(timeRemaining) <= 0;
+                      const isExpired = timeRemaining === 'Expired' || timeRemaining === 'N/A';
                       
                       if (isExpired) {
                         return (
